@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#000010">
+<meta name="description" content="Air Taxi 2099 — dodge buildings, collect fares in a neon cyberpunk city">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Air Taxi 2099">
+<link rel="manifest" href="manifest.json">
 <title>Air Taxi 2099</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@700;900&display=swap');
@@ -451,6 +457,33 @@
   #cornerBL { bottom: 4px; left: 4px; border-bottom: 2px solid rgba(0,255,255,0.6); border-left: 2px solid rgba(0,255,255,0.6); }
   #cornerBR { bottom: 4px; right: 4px; border-bottom: 2px solid rgba(0,255,255,0.6); border-right: 2px solid rgba(0,255,255,0.6); }
 
+  /* ── Update banner ── */
+  #updateBanner {
+    position: absolute;
+    bottom: clamp(10px,3vw,18px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,20,0,0.92);
+    border: 1px solid rgba(0,255,100,0.6);
+    color: #0f6;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: clamp(9px,2vw,11px);
+    letter-spacing: 2px;
+    padding: clamp(6px,1.5vw,9px) clamp(12px,3vw,18px);
+    cursor: pointer;
+    z-index: 50;
+    white-space: nowrap;
+    text-shadow: 0 0 8px #0f6;
+    box-shadow: 0 0 14px rgba(0,255,100,0.2);
+    animation: slideUp 0.4s ease-out;
+    display: none;
+  }
+  #updateBanner.visible { display: block; }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
   @keyframes titlePulse {
     0%, 100% { text-shadow: 0 0 20px var(--cyan), 0 0 50px rgba(0,255,255,0.5); }
     50% { text-shadow: 0 0 30px var(--cyan), 0 0 70px var(--cyan); }
@@ -573,6 +606,9 @@
     <div class="lp-line1">▲ TAP TO LIFT OFF ▲</div>
     <div class="lp-line2">ENGINES HOT · AWAITING LAUNCH</div>
   </div>
+
+  <!-- Update notification banner -->
+  <div id="updateBanner">⬆ UPDATE READY — TAP TO RELOAD</div>
 
   <!-- Decorative -->
   <div id="scanline"></div>
@@ -1433,6 +1469,7 @@ function gameOver() {
   playSound('collision');
   emitCrash(TAXI.x, TAXI.y);
   launchPrompt.classList.add('hidden');
+  maybeShowAd(); // every 3rd crash only
 
   const isNewRecord = score > highScore;
   if (score > highScore) {
@@ -1644,6 +1681,62 @@ function stopMusic() {
 
 // Load immediately (decode in background)
 loadMusic();
+
+// ── Version & Service Worker ─────────────────────────────────
+const GAME_VERSION = '1.0.0'; // bump this + CACHE_VERSION in sw.js on every release
+
+const updateBanner = document.getElementById('updateBanner');
+updateBanner.addEventListener('click', () => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg && reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    });
+  }
+  window.location.reload();
+});
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => {
+        setInterval(() => reg.update(), 60000);
+        const showUpdateBanner = () => {
+          if (reg.waiting) updateBanner.classList.add('visible');
+        };
+        if (reg.waiting) showUpdateBanner();
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateBanner();
+            }
+          });
+        });
+      })
+      .catch(() => {}); // silently skip if SW not supported (e.g. some WebViews)
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) { refreshing = true; window.location.reload(); }
+    });
+  });
+}
+
+// ── Ads: crash counter ────────────────────────────────────────
+// Every 3rd crash calls the Android bridge (if present) to show an interstitial.
+// In browser or when bridge is absent, this silently no-ops.
+let crashCount = 0;
+
+function maybeShowAd() {
+  crashCount++;
+  if (crashCount % 3 === 0) {
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
+        window.AndroidBridge.onGameOver();
+      }
+    } catch(e) {}
+  }
+}
 
 // ── Init ──────────────────────────────────────────────────────
 TAXI.y = TAXI_REST_Y; // start on launchpad
