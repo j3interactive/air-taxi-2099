@@ -702,19 +702,20 @@ const firebaseReady = (async () => {
   if (FIREBASE_CONFIG.apiKey === 'REPLACE_WITH_YOUR_API_KEY') return false;
   try {
     const { initializeApp }    = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
-    const { getFirestore, collection, doc, setDoc, getDoc, getDocs,
+    const { getFirestore, collection, doc, setDoc, updateDoc, getDoc, getDocs,
             query, orderBy, limit, serverTimestamp }
                                = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
     const app = initializeApp(FIREBASE_CONFIG);
     db = getFirestore(app);
-    db._col    = () => collection(db, 'scores');
-    db._doc    = (id) => doc(db, 'scores', id);
-    db._setDoc = setDoc;
-    db._getDoc = getDoc;
-    db._getDocs = getDocs;
-    db._query  = query;
-    db._orderBy = orderBy;
-    db._limit  = limit;
+    db._col       = () => collection(db, 'scores');
+    db._doc       = (id) => doc(db, 'scores', id);
+    db._setDoc    = setDoc;
+    db._updateDoc = updateDoc;
+    db._getDoc    = getDoc;
+    db._getDocs   = getDocs;
+    db._query     = query;
+    db._orderBy   = orderBy;
+    db._limit     = limit;
     db._ts     = serverTimestamp;
     return true;
   } catch(e) {
@@ -733,30 +734,26 @@ async function submitScore(score, forceNameUpdate = false) {
   const ready = await firebaseReady;
   if (!ready || !db) return; // offline or config not set — silently skip
 
-  try {
-    const ref      = db._doc(deviceId);
-    const existing = await db._getDoc(ref);
+  const ref      = db._doc(deviceId);
+  const existing = await db._getDoc(ref);
 
-    if (existing.exists()) {
-      if (existing.data().score >= score) {
-        // Score hasn't improved — only update if name change was explicitly requested
-        if (forceNameUpdate) {
-          await db._setDoc(ref, { ...existing.data(), name, updatedAt: db._ts() });
-        }
-        return;
+  if (existing.exists()) {
+    if (existing.data().score >= score) {
+      // Score hasn't improved — only update name if explicitly requested
+      if (forceNameUpdate) {
+        await db._updateDoc(ref, { name, updatedAt: db._ts() });
       }
+      return;
     }
-
-    await db._setDoc(ref, {
-      name,
-      score,
-      date: today,
-      deviceId,
-      updatedAt: db._ts()
-    });
-  } catch(e) {
-    console.warn('Score submit failed:', e);
   }
+
+  await db._setDoc(ref, {
+    name,
+    score,
+    date: today,
+    deviceId,
+    updatedAt: db._ts()
+  });
 }
 
 // ── Fetch top 20 + player's own entry ────────────────────────
@@ -882,16 +879,28 @@ lbSaveBtn.addEventListener('click', async () => {
   if (val.length === 0) return;
   setPlayerName(val);
   nameInput.blur();
+  lbSaveBtn.textContent = 'SAVING...';
   // Re-submit under new name — force update even if score hasn't improved
   const scoreToSubmit = (lastScoreSubmitted !== null && lastScoreSubmitted > 0)
     ? lastScoreSubmitted : highScore;
+  let saveError = false;
   if (scoreToSubmit > 0) {
-    await submitScore(scoreToSubmit, true);
+    try {
+      await submitScore(scoreToSubmit, true);
+    } catch(e) {
+      console.warn('Name save failed:', e);
+      saveError = true;
+    }
   }
   renderLeaderboard(lastScoreSubmitted);
   updateRankLink();
-  lbSaveBtn.textContent = 'SAVED ✓';
-  setTimeout(() => lbSaveBtn.textContent = 'SAVE NAME', 1200);
+  if (saveError) {
+    lbSaveBtn.textContent = 'SAVED LOCALLY ⚠';
+    setTimeout(() => lbSaveBtn.textContent = 'SAVE NAME', 2500);
+  } else {
+    lbSaveBtn.textContent = 'SAVED ✓';
+    setTimeout(() => lbSaveBtn.textContent = 'SAVE NAME', 1200);
+  }
 });
 nameInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') { nameInput.blur(); lbSaveBtn.click(); }
@@ -1574,7 +1583,7 @@ function gameOver() {
   }
 
   lastScoreSubmitted = score;
-  submitScore(score); // async — fire and forget
+  submitScore(score).catch(e => console.warn('Score submit failed:', e)); // fire and forget
 
   setTimeout(() => {
     overlayLabel.textContent = isNewRecord ? '🏆 NEW RECORD!' : (score === 0 ? 'BETTER LUCK NEXT TIME' : 'PASSENGERS DELIVERED');
