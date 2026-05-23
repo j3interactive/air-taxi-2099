@@ -724,7 +724,7 @@ const firebaseReady = (async () => {
 })();
 
 // ── Submit score to Firestore (one doc per device) ───────────
-async function submitScore(score) {
+async function submitScore(score, forceNameUpdate = false) {
   if (score <= 0) return;
   const name     = getPlayerName() || 'PILOT';
   const deviceId = getDeviceId();
@@ -738,8 +738,13 @@ async function submitScore(score) {
     const existing = await db._getDoc(ref);
 
     if (existing.exists()) {
-      // Only update if this is a new personal best
-      if (existing.data().score >= score) return;
+      if (existing.data().score >= score) {
+        // Score hasn't improved — only update if name change was explicitly requested
+        if (forceNameUpdate) {
+          await db._setDoc(ref, { ...existing.data(), name, updatedAt: db._ts() });
+        }
+        return;
+      }
     }
 
     await db._setDoc(ref, {
@@ -877,9 +882,11 @@ lbSaveBtn.addEventListener('click', async () => {
   if (val.length === 0) return;
   setPlayerName(val);
   nameInput.blur();
-  // Re-submit under new name if they have a score
-  if (lastScoreSubmitted !== null && lastScoreSubmitted > 0) {
-    await submitScore(lastScoreSubmitted);
+  // Re-submit under new name — force update even if score hasn't improved
+  const scoreToSubmit = (lastScoreSubmitted !== null && lastScoreSubmitted > 0)
+    ? lastScoreSubmitted : highScore;
+  if (scoreToSubmit > 0) {
+    await submitScore(scoreToSubmit, true);
   }
   renderLeaderboard(lastScoreSubmitted);
   updateRankLink();
@@ -1728,9 +1735,9 @@ async function loadMusic() {
   }
 }
 
-function startMusic() {
+async function startMusic() {
   if (!musicBuffer || musicStarted) return;
-  resumeAudio();
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
   musicStarted = true;
   scheduleLoop(audioCtx.currentTime);
 }
@@ -1754,7 +1761,10 @@ function scheduleLoop(startAt) {
   const msUntilEnd = (nextStart - audioCtx.currentTime) * 1000 - 20;
   if (msUntilEnd > 0) {
     setTimeout(() => {
-      if (musicSource === src) scheduleLoop(nextStart);
+      if (musicSource === src) {
+        src.onended = null; // prevent double-fire with onended
+        scheduleLoop(nextStart);
+      }
     }, msUntilEnd);
   }
 }
