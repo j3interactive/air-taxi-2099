@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000010">
 <meta name="description" content="Air Taxi 2099 — dodge buildings, collect fares in a neon cyberpunk city">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -22,10 +22,17 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+  html {
+    height: 100%;
+    /* -webkit-fill-available is what Android WebView actually respects */
+    height: -webkit-fill-available;
+  }
+
   html, body {
     width: 100%; height: 100%;
-    /* Use dvh (dynamic viewport) where supported, fall back to svh then vh */
+    /* Cascade of fallbacks: dvh (modern) → svh → -webkit-fill-available → vh */
     min-height: 100svh;
+    min-height: -webkit-fill-available;
     background: #000;
     display: flex;
     flex-direction: column;
@@ -37,16 +44,23 @@
     /* Prevent rubber-band scroll from shifting layout */
     position: fixed;
     inset: 0;
+    /* Prevent font inflation on orientation change in WebView */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   #gameWrapper {
     position: relative;
-    /* Responsive: fill viewport maintaining aspect ratio */
-    width: min(480px, 100vw, calc(100vh * 0.75));
-    height: min(640px, 100vh, calc(100vw * 1.333));
+    /* Fixed logical size — JS scales this to fit any screen via transform */
+    width: 480px;
+    height: 640px;
     box-shadow: 0 0 60px rgba(0,255,255,0.25), 0 0 120px rgba(255,0,255,0.12);
     border: 1px solid rgba(0,255,255,0.2);
     flex-shrink: 0;
+    /* Scale origin stays centred; JS sets transform: scale() */
+    transform-origin: center center;
+    /* Prevent tap flash on old Android WebView */
+    -webkit-tap-highlight-color: transparent;
   }
 
   canvas {
@@ -54,6 +68,9 @@
     width: 100%;
     height: 100%;
     image-rendering: pixelated;
+    image-rendering: crisp-edges; /* Firefox fallback */
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   /* HUD */
@@ -199,6 +216,10 @@
     transition: color 0.2s, box-shadow 0.2s;
     text-shadow: 0 0 8px var(--cyan);
     box-shadow: 0 0 12px rgba(0,255,255,0.25), inset 0 0 12px rgba(0,255,255,0.06);
+    /* Larger touch target + removes 300ms delay on Android WebView */
+    min-height: 44px;
+    min-width: 140px;
+    touch-action: manipulation;
   }
   .start-btn::before {
     content: '';
@@ -210,8 +231,11 @@
     transition: transform 0.2s;
     z-index: -1;
   }
-  .start-btn:hover { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
-  .start-btn:hover::before { transform: scaleX(1); }
+  .start-btn:hover  { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
+  .start-btn:hover::before  { transform: scaleX(1); }
+  /* Touch active states for Android (hover doesn't fire reliably on WebView) */
+  .start-btn:active { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
+  .start-btn:active::before { transform: scaleX(1); }
 
   .tip {
     margin-top: clamp(10px,2.5vw,18px);
@@ -624,6 +648,30 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const W = 480, H = 640;
+
+// ── Responsive Scaling ────────────────────────────────────────
+// Canvas always renders at 480x640 (all game logic coords stay unchanged).
+// CSS transform scales #gameWrapper to fit the actual screen — works on
+// every screen size including the Galaxy S8 without touching any game math.
+const gameWrapper = document.getElementById('gameWrapper');
+
+function scaleGame() {
+  // window.innerWidth/Height is more reliable than 100vw/vh inside Android WebView
+  const availW = window.innerWidth  - 4; // 2px margin each side
+  const availH = window.innerHeight - 4;
+  const scale  = Math.min(availW / 480, availH / 640, 1); // never upscale past 1x
+  gameWrapper.style.transform = `scale(${scale})`;
+}
+
+scaleGame();
+window.addEventListener('resize', scaleGame);
+window.addEventListener('orientationchange', () => {
+  // WebView delays layout after orientation change — fire again after paint
+  setTimeout(scaleGame, 100);
+  setTimeout(scaleGame, 400);
+});
+// Belt-and-suspenders: WebView sometimes reports wrong dimensions on first load
+setTimeout(scaleGame, 150);
 
 // UI refs
 const overlay      = document.getElementById('overlay');
