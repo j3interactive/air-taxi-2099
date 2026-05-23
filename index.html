@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#000010">
 <meta name="description" content="Air Taxi 2099 — dodge buildings, collect fares in a neon cyberpunk city">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -22,17 +22,10 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-  html {
-    height: 100%;
-    /* -webkit-fill-available is what Android WebView actually respects */
-    height: -webkit-fill-available;
-  }
-
   html, body {
     width: 100%; height: 100%;
-    /* Cascade of fallbacks: dvh (modern) → svh → -webkit-fill-available → vh */
+    /* Use dvh (dynamic viewport) where supported, fall back to svh then vh */
     min-height: 100svh;
-    min-height: -webkit-fill-available;
     background: #000;
     display: flex;
     flex-direction: column;
@@ -44,22 +37,17 @@
     /* Prevent rubber-band scroll from shifting layout */
     position: fixed;
     inset: 0;
-    /* Prevent font inflation on orientation change in WebView */
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
   }
 
   #gameWrapper {
     position: relative;
-    /* Fixed logical size — JS scales this to fit any screen via transform */
+    /* Fixed logical canvas — JS scales to fill the screen on any device */
     width: 480px;
     height: 640px;
     box-shadow: 0 0 60px rgba(0,255,255,0.25), 0 0 120px rgba(255,0,255,0.12);
     border: 1px solid rgba(0,255,255,0.2);
     flex-shrink: 0;
-    /* Scale origin stays centred; JS sets transform: scale() */
     transform-origin: center center;
-    /* Prevent tap flash on old Android WebView */
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -68,9 +56,6 @@
     width: 100%;
     height: 100%;
     image-rendering: pixelated;
-    image-rendering: crisp-edges; /* Firefox fallback */
-    -webkit-user-select: none;
-    user-select: none;
   }
 
   /* HUD */
@@ -216,10 +201,6 @@
     transition: color 0.2s, box-shadow 0.2s;
     text-shadow: 0 0 8px var(--cyan);
     box-shadow: 0 0 12px rgba(0,255,255,0.25), inset 0 0 12px rgba(0,255,255,0.06);
-    /* Larger touch target + removes 300ms delay on Android WebView */
-    min-height: 44px;
-    min-width: 140px;
-    touch-action: manipulation;
   }
   .start-btn::before {
     content: '';
@@ -231,11 +212,8 @@
     transition: transform 0.2s;
     z-index: -1;
   }
-  .start-btn:hover  { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
-  .start-btn:hover::before  { transform: scaleX(1); }
-  /* Touch active states for Android (hover doesn't fire reliably on WebView) */
-  .start-btn:active { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
-  .start-btn:active::before { transform: scaleX(1); }
+  .start-btn:hover { color: #000; box-shadow: 0 0 28px rgba(0,255,255,0.5); }
+  .start-btn:hover::before { transform: scaleX(1); }
 
   .tip {
     margin-top: clamp(10px,2.5vw,18px);
@@ -588,7 +566,7 @@
       <div class="hud-value" id="hudBest">0</div>
     </div>
   </div>
-  <button id="lbBtn">🏆 RANKS</button>
+  <button id="lbBtn">🌐 GLOBAL</button>
 
   <!-- Main Overlay -->
   <div id="overlay">
@@ -611,7 +589,7 @@
   <!-- Leaderboard Panel -->
   <div id="lbPanel" class="hidden">
     <div class="lb-title">LEADERBOARD</div>
-    <div class="lb-sub">TOP PILOTS · 2099</div>
+    <div class="lb-sub">🌐 GLOBAL TOP 20 · 2099</div>
     <div class="lb-divider"></div>
     <div class="lb-list" id="lbList"></div>
     <div class="my-rank-badge" id="myRankBadge" style="display:none"></div>
@@ -649,28 +627,20 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const W = 480, H = 640;
 
-// ── Responsive Scaling ────────────────────────────────────────
-// Canvas always renders at 480x640 (all game logic coords stay unchanged).
-// CSS transform scales #gameWrapper to fit the actual screen — works on
-// every screen size including the Galaxy S8 without touching any game math.
+// ── Fullscreen scaling ───────────────────────────────────────
+// Canvas stays at 480×640; CSS transform scales wrapper to fill screen.
+// On mobile this means truly edge-to-edge — no letterboxing.
 const gameWrapper = document.getElementById('gameWrapper');
-
 function scaleGame() {
-  // window.innerWidth/Height is more reliable than 100vw/vh inside Android WebView
-  const availW = window.innerWidth  - 4; // 2px margin each side
-  const availH = window.innerHeight - 4;
-  const scale  = Math.min(availW / 480, availH / 640, 1); // never upscale past 1x
+  const scale = Math.min(window.innerWidth / 480, window.innerHeight / 640);
   gameWrapper.style.transform = `scale(${scale})`;
 }
-
 scaleGame();
 window.addEventListener('resize', scaleGame);
 window.addEventListener('orientationchange', () => {
-  // WebView delays layout after orientation change — fire again after paint
   setTimeout(scaleGame, 100);
   setTimeout(scaleGame, 400);
 });
-// Belt-and-suspenders: WebView sometimes reports wrong dimensions on first load
 setTimeout(scaleGame, 150);
 
 // UI refs
@@ -694,45 +664,27 @@ const myRankBadge  = document.getElementById('myRankBadge');
 const rankLink     = document.getElementById('rankLink');
 const launchPrompt = document.getElementById('launchPrompt');
 
-// ── Leaderboard ──────────────────────────────────────────────
-const LB_KEY = 'airtaxi2099_lb_v2';
-const HS_KEY = 'airtaxi2099_hs';
+// ── Leaderboard — Global (Firebase) + Local fallback ────────
+// ─────────────────────────────────────────────────────────────
+// SETUP: Replace the firebaseConfig below with your own from
+// Firebase Console → Project Settings → Your Web App.
+// ─────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDusKjQxgO81zZBtr66nQc0IxulK8lXXa0",
+  authDomain:        "airtaxi2099.firebaseapp.com",
+  projectId:         "airtaxi2099",
+  storageBucket:     "airtaxi2099.firebasestorage.app",
+  messagingSenderId: "240208109054",
+  appId:             "1:240208109054:web:2b02e0c7f78de4be3f74af",
+  measurementId:     "G-GJG7BGWKRL"
+};
+
+const HS_KEY   = 'airtaxi2099_hs';
 const NAME_KEY = 'airtaxi2099_name';
+const DEVICE_KEY = 'airtaxi2099_device';
 const MAX_ENTRIES = 20;
 
-function loadLeaderboard() {
-  try { return JSON.parse(localStorage.getItem(LB_KEY) || '[]'); } catch { return []; }
-}
-function saveLeaderboard(lb) {
-  localStorage.setItem(LB_KEY, JSON.stringify(lb));
-}
-function getPlayerName() {
-  return localStorage.getItem(NAME_KEY) || '';
-}
-function setPlayerName(n) {
-  const newName = n.toUpperCase().trim().slice(0, 10);
-  const oldName = getPlayerName();
-  localStorage.setItem(NAME_KEY, newName);
-  // Migrate any leaderboard entries from the old name to the new name
-  if (newName && newName !== oldName) {
-    const lb = loadLeaderboard();
-    let changed = false;
-    lb.forEach(entry => {
-      if (entry.name === oldName || entry.name === 'PILOT' || entry.name === '') {
-        // Only migrate if it's plausibly "this device" — use the device token
-        if (entry.deviceId && entry.deviceId === getDeviceId()) {
-          entry.name = newName;
-          changed = true;
-        }
-      }
-    });
-    if (changed) saveLeaderboard(lb);
-  }
-}
-
-// Stable per-device ID stored in localStorage — ties scores to this device
-// even when the player changes their callsign
-const DEVICE_KEY = 'airtaxi2099_device';
+// Per-device ID — persists across name changes so one device = one leaderboard slot
 function getDeviceId() {
   let id = localStorage.getItem(DEVICE_KEY);
   if (!id) {
@@ -741,83 +693,175 @@ function getDeviceId() {
   }
   return id;
 }
+function getPlayerName() { return localStorage.getItem(NAME_KEY) || ''; }
+function setPlayerName(n) { localStorage.setItem(NAME_KEY, n.toUpperCase().trim().slice(0, 10)); }
 
-function submitScore(score) {
-  if (score <= 0) return;
-  const name = getPlayerName() || 'PILOT';
-  const deviceId = getDeviceId();
-  const lb = loadLeaderboard();
-  const today = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
-
-  // Match by deviceId first (handles name changes), then fall back to name
-  const existing = lb.findIndex(e => e.deviceId === deviceId) >= 0
-    ? lb.findIndex(e => e.deviceId === deviceId)
-    : lb.findIndex(e => e.name === name);
-
-  if (existing >= 0) {
-    // Always update the name in case they changed their callsign
-    lb[existing].name = name;
-    lb[existing].deviceId = deviceId;
-    if (lb[existing].score < score) {
-      lb[existing].score = score;
-      lb[existing].date = today;
-    }
-  } else {
-    lb.push({ name, score, date: today, deviceId });
+// ── Firebase init (lazy — only if config is filled in) ───────
+let db = null;
+const firebaseReady = (async () => {
+  if (FIREBASE_CONFIG.apiKey === 'REPLACE_WITH_YOUR_API_KEY') return false;
+  try {
+    const { initializeApp }    = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+    const { getFirestore, collection, doc, setDoc, getDoc, getDocs,
+            query, orderBy, limit, serverTimestamp }
+                               = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+    const app = initializeApp(FIREBASE_CONFIG);
+    db = getFirestore(app);
+    db._col    = () => collection(db, 'scores');
+    db._doc    = (id) => doc(db, 'scores', id);
+    db._setDoc = setDoc;
+    db._getDoc = getDoc;
+    db._getDocs = getDocs;
+    db._query  = query;
+    db._orderBy = orderBy;
+    db._limit  = limit;
+    db._ts     = serverTimestamp;
+    return true;
+  } catch(e) {
+    console.warn('Firebase init failed:', e);
+    return false;
   }
+})();
 
-  lb.sort((a, b) => b.score - a.score);
-  const trimmed = lb.slice(0, MAX_ENTRIES);
-  saveLeaderboard(trimmed);
-  return trimmed;
+// ── Submit score to Firestore (one doc per device) ───────────
+async function submitScore(score) {
+  if (score <= 0) return;
+  const name     = getPlayerName() || 'PILOT';
+  const deviceId = getDeviceId();
+  const today    = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+  const ready = await firebaseReady;
+  if (!ready || !db) return; // offline or config not set — silently skip
+
+  try {
+    const ref      = db._doc(deviceId);
+    const existing = await db._getDoc(ref);
+
+    if (existing.exists()) {
+      // Only update if this is a new personal best
+      if (existing.data().score >= score) return;
+    }
+
+    await db._setDoc(ref, {
+      name,
+      score,
+      date: today,
+      deviceId,
+      updatedAt: db._ts()
+    });
+  } catch(e) {
+    console.warn('Score submit failed:', e);
+  }
 }
 
-function renderLeaderboard(highlightScore) {
-  const lb = loadLeaderboard();
+// ── Fetch top 20 + player's own entry ────────────────────────
+async function fetchGlobalLeaderboard() {
+  const ready = await firebaseReady;
+  if (!ready || !db) return null; // signal: use local fallback
+
+  try {
+    const top20Query = db._query(
+      db._col(),
+      db._orderBy('score', 'desc'),
+      db._limit(20)
+    );
+    const snap = await db._getDocs(top20Query);
+    const entries = snap.docs.map(d => d.data());
+
+    // Check if this device's entry is already in top 20
+    const deviceId = getDeviceId();
+    const myEntryInTop20 = entries.find(e => e.deviceId === deviceId);
+
+    if (!myEntryInTop20) {
+      // Fetch player's own entry separately so they always see their rank
+      const myRef  = db._doc(deviceId);
+      const mySnap = await db._getDoc(myRef);
+      if (mySnap.exists()) {
+        entries.push({ ...mySnap.data(), _isMyEntryBelow: true });
+      }
+    }
+
+    return entries;
+  } catch(e) {
+    console.warn('Leaderboard fetch failed:', e);
+    return null;
+  }
+}
+
+// ── Render leaderboard (global if available, local fallback) ──
+async function renderLeaderboard(highlightScore) {
+  const deviceId   = getDeviceId();
   const playerName = getPlayerName() || 'PILOT';
+  lbList.innerHTML = '<div class="lb-empty">LOADING PILOTS...</div>';
+  myRankBadge.style.display = 'none';
+
+  const entries = await fetchGlobalLeaderboard();
+
   lbList.innerHTML = '';
 
-  if (lb.length === 0) {
-    lbList.innerHTML = '<div class="lb-empty">NO PILOTS ON RECORD YET<br><br>FLY YOUR FIRST MISSION</div>';
-    myRankBadge.style.display = 'none';
+  // No Firebase config yet — show a helpful message in the leaderboard
+  if (entries === null) {
+    lbList.innerHTML = `<div class="lb-empty">GLOBAL LEADERBOARD<br><br>
+      Configure Firebase to see all pilots.<br>
+      Your local scores are still saved.</div>`;
     return;
   }
 
-  const medals = ['🥇','🥈','🥉'];
-  let myRank = null;
+  if (entries.length === 0) {
+    lbList.innerHTML = '<div class="lb-empty">NO PILOTS ON RECORD YET<br><br>FLY YOUR FIRST MISSION</div>';
+    return;
+  }
 
-  lb.forEach((entry, i) => {
+  const medals  = ['🥇','🥈','🥉'];
+  // Top 20 are the entries without the _isMyEntryBelow flag
+  const top20   = entries.filter(e => !e._isMyEntryBelow);
+  const myBelow = entries.find(e => e._isMyEntryBelow);
+  let myRank    = null;
+
+  top20.forEach((entry, i) => {
+    const isMe = entry.deviceId === deviceId;
+    if (isMe) myRank = i + 1;
+
+    const rankClass   = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '';
+    const rankDisplay = i < 3 ? medals[i] : `#${i + 1}`;
+    const newBadge    = (isMe && highlightScore && entry.score === highlightScore)
+      ? '<span class="new-badge">NEW</span>' : '';
+
     const row = document.createElement('div');
-    const rankClass = i === 0 ? 'rank-1' : i === 1 ? 'rank-2' : i === 2 ? 'rank-3' : '';
-    const isMe = (entry.deviceId && entry.deviceId === getDeviceId()) || entry.name === playerName;
-    if (isMe && myRank === null) myRank = i + 1;
-
     row.className = `lb-row ${rankClass} ${isMe ? 'my-score' : ''}`;
-    const rankDisplay = i < 3 ? medals[i] : `#${i+1}`;
-
-    const newBadge = (isMe && highlightScore && entry.score === highlightScore)
-      ? `<span class="new-badge">NEW</span>` : '';
-
     row.innerHTML = `
       <div class="lb-rank">${rankDisplay}</div>
       <div class="lb-name">${entry.name} ${newBadge}</div>
       <div class="lb-score">${entry.score}</div>
-      <div class="lb-date">${entry.date}</div>
-    `;
+      <div class="lb-date">${entry.date || ''}</div>`;
     lbList.appendChild(row);
   });
 
-  if (myRank !== null) {
+  // If player is outside top 20, show them below a separator
+  if (myBelow) {
+    const sep = document.createElement('div');
+    sep.style.cssText = 'text-align:center;color:rgba(255,255,255,0.2);font-size:10px;letter-spacing:3px;padding:6px 0';
+    sep.textContent = '· · ·';
+    lbList.appendChild(sep);
+
+    const row = document.createElement('div');
+    row.className = 'lb-row my-score';
+    row.innerHTML = `
+      <div class="lb-rank" style="color:var(--gold)">YOU</div>
+      <div class="lb-name">${myBelow.name} <span class="new-badge">YOU</span></div>
+      <div class="lb-score">${myBelow.score}</div>
+      <div class="lb-date">${myBelow.date || ''}</div>`;
+    lbList.appendChild(row);
     myRankBadge.style.display = 'block';
-    myRankBadge.innerHTML = `YOUR RANK: <span>#${myRank}</span> of ${lb.length} pilots`;
-  } else {
-    myRankBadge.style.display = 'none';
+    myRankBadge.innerHTML = `YOUR RANK: <span>OUTSIDE TOP 20</span>`;
+  } else if (myRank !== null) {
+    myRankBadge.style.display = 'block';
+    myRankBadge.innerHTML = `YOUR GLOBAL RANK: <span>#${myRank}</span> of ${top20.length}+ pilots`;
   }
 }
 
 function openLeaderboard(highlightScore) {
-  const name = getPlayerName();
-  nameInput.value = name;
+  nameInput.value = getPlayerName();
   renderLeaderboard(highlightScore);
   lbPanel.classList.remove('hidden');
 }
@@ -828,58 +872,54 @@ function closeLeaderboard() {
 
 lbBtn.addEventListener('click', () => openLeaderboard(null));
 lbCloseBtn.addEventListener('click', closeLeaderboard);
-lbSaveBtn.addEventListener('click', () => {
+lbSaveBtn.addEventListener('click', async () => {
   const val = nameInput.value.trim().toUpperCase();
   if (val.length === 0) return;
-  setPlayerName(val);    // also migrates old PILOT entries
-  // Re-submit the last score so it's stored under the correct new name immediately
-  if (lastScoreSubmitted !== null && lastScoreSubmitted > 0) {
-    submitScore(lastScoreSubmitted);
-  } else {
-    // No game played yet — just ensure the device slot exists in lb with score 0 skipped
-    // Submit a placeholder only if they already have an entry to rename
-    const lb = loadLeaderboard();
-    const idx = lb.findIndex(e => e.deviceId === getDeviceId());
-    if (idx >= 0) { lb[idx].name = val; saveLeaderboard(lb); }
-  }
+  setPlayerName(val);
   nameInput.blur();
+  // Re-submit under new name if they have a score
+  if (lastScoreSubmitted !== null && lastScoreSubmitted > 0) {
+    await submitScore(lastScoreSubmitted);
+  }
   renderLeaderboard(lastScoreSubmitted);
   updateRankLink();
   lbSaveBtn.textContent = 'SAVED ✓';
   setTimeout(() => lbSaveBtn.textContent = 'SAVE NAME', 1200);
 });
 nameInput.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    nameInput.blur(); // dismiss keyboard — prevents lingering zoom
-    lbSaveBtn.click();
-  }
+  if (e.key === 'Enter') { nameInput.blur(); lbSaveBtn.click(); }
 });
-// Blur input when leaderboard closes to prevent zoom sticking after panel hides
 function blurInputs() {
   if (document.activeElement && document.activeElement.tagName === 'INPUT') {
     document.activeElement.blur();
   }
 }
 
-// Rank link on overlay
-rankLink.addEventListener('click', e => {
-  e.stopPropagation();
-  openLeaderboard(null);
-});
+rankLink.addEventListener('click', e => { e.stopPropagation(); openLeaderboard(null); });
 
-function updateRankLink() {
-  const lb = loadLeaderboard();
-  const playerName = getPlayerName() || 'PILOT';
-  const idx = lb.findIndex(e => e.name === playerName);
-  if (idx >= 0 && lb.length > 0) {
+async function updateRankLink() {
+  const ready = await firebaseReady;
+  if (!ready || !db) { rankLink.style.display = 'none'; return; }
+  try {
+    const deviceId = getDeviceId();
+    const mySnap   = await db._getDoc(db._doc(deviceId));
+    if (!mySnap.exists()) { rankLink.style.display = 'none'; return; }
+
+    // Count how many scores are higher than this player's to get their rank
+    const myScore  = mySnap.data().score;
+    const top20Snap = await db._getDocs(db._query(db._col(), db._orderBy('score','desc'), db._limit(20)));
+    const top20    = top20Snap.docs.map(d => d.data());
+    const idx      = top20.findIndex(e => e.deviceId === deviceId);
+
     rankLink.style.display = 'block';
-    const medals = ['🥇','🥈','🥉'];
-    const medal = idx < 3 ? medals[idx] : '';
-    rankLink.textContent = `${medal} YOUR RANK: #${idx + 1} OF ${lb.length} · VIEW LEADERBOARD`;
-  } else if (lb.length > 0) {
-    rankLink.style.display = 'block';
-    rankLink.textContent = `🏆 VIEW LEADERBOARD (${lb.length} PILOTS)`;
-  } else {
+    if (idx >= 0) {
+      const medals = ['🥇','🥈','🥉'];
+      const medal  = idx < 3 ? medals[idx] : '';
+      rankLink.textContent = `${medal} GLOBAL RANK: #${idx + 1} · VIEW LEADERBOARD`;
+    } else {
+      rankLink.textContent = `🌐 VIEW GLOBAL LEADERBOARD`;
+    }
+  } catch(e) {
     rankLink.style.display = 'none';
   }
 }
@@ -1527,7 +1567,7 @@ function gameOver() {
   }
 
   lastScoreSubmitted = score;
-  submitScore(score);
+  submitScore(score); // async — fire and forget
 
   setTimeout(() => {
     overlayLabel.textContent = isNewRecord ? '🏆 NEW RECORD!' : (score === 0 ? 'BETTER LUCK NEXT TIME' : 'PASSENGERS DELIVERED');
