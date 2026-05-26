@@ -1541,8 +1541,8 @@ function flap() {
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); flap(); }
 });
-canvas.addEventListener('click', flap);
-canvas.addEventListener('touchstart', e => { e.preventDefault(); flap(); }, { passive: false });
+document.addEventListener('click', e => { if (!e.target.closest('button, input, a')) flap(); });
+document.addEventListener('touchstart', e => { if (!e.target.closest('button, input, a')) { e.preventDefault(); flap(); } }, { passive: false });
 
 startBtn.addEventListener('click', e => {
   e.stopPropagation();
