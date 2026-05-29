@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000010">
 <meta name="description" content="Air Taxi 2099 — dodge buildings, collect fares in a neon cyberpunk city">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -589,7 +589,7 @@
   <!-- Leaderboard Panel -->
   <div id="lbPanel" class="hidden">
     <div class="lb-title">LEADERBOARD</div>
-    <div class="lb-sub">🌐 GLOBAL TOP 20 · 2099</div>
+    <div class="lb-sub">🌐 GLOBAL TOP 10 · 2099</div>
     <div class="lb-divider"></div>
     <div class="lb-list" id="lbList"></div>
     <div class="my-rank-badge" id="myRankBadge" style="display:none"></div>
@@ -628,12 +628,16 @@ const ctx = canvas.getContext('2d');
 const W = 480, H = 640;
 
 // ── Fullscreen scaling ───────────────────────────────────────
-// Canvas stays at 480×640; CSS transform scales wrapper to fill screen.
-// On mobile this means truly edge-to-edge — no letterboxing.
+// Cover mode: scale to whichever axis fills the screen first, then clip
+// the overflow. HUD insets are adjusted to stay within the visible area.
 const gameWrapper = document.getElementById('gameWrapper');
+const hud         = document.getElementById('hud');
 function scaleGame() {
-  const scale = Math.min(window.innerWidth / 480, window.innerHeight / 640);
+  const scale    = Math.max(window.innerWidth / 480, window.innerHeight / 640);
+  const overflow = Math.max(0, (480 - window.innerWidth / scale) / 2);
   gameWrapper.style.transform = `scale(${scale})`;
+  hud.style.left  = overflow + 'px';
+  hud.style.right = overflow + 'px';
 }
 scaleGame();
 window.addEventListener('resize', scaleGame);
@@ -759,21 +763,21 @@ async function submitScore(score, forceNameUpdate = false) {
   }
 }
 
-// ── Fetch top 20 + player's own entry ────────────────────────
+// ── Fetch top 10 + player's own entry ────────────────────────
 async function fetchGlobalLeaderboard() {
   const ready = await firebaseReady;
   if (!ready || !db) return null; // signal: use local fallback
 
   try {
-    const top20Query = db._query(
+    const top10Query = db._query(
       db._col(),
       db._orderBy('score', 'desc'),
-      db._limit(20)
+      db._limit(10)
     );
-    const snap = await db._getDocs(top20Query);
+    const snap = await db._getDocs(top10Query);
     const entries = snap.docs.map(d => d.data());
 
-    // Check if this device's entry is already in top 20
+    // Check if this device's entry is already in top 10
     const deviceId = getDeviceId();
     const myEntryInTop20 = entries.find(e => e.deviceId === deviceId);
 
@@ -818,12 +822,12 @@ async function renderLeaderboard(highlightScore) {
   }
 
   const medals  = ['🥇','🥈','🥉'];
-  // Top 20 are the entries without the _isMyEntryBelow flag
-  const top20   = entries.filter(e => !e._isMyEntryBelow);
+  // Top 10 entries are those without the _isMyEntryBelow flag
+  const top10   = entries.filter(e => !e._isMyEntryBelow);
   const myBelow = entries.find(e => e._isMyEntryBelow);
   let myRank    = null;
 
-  top20.forEach((entry, i) => {
+  top10.forEach((entry, i) => {
     const isMe = entry.deviceId === deviceId;
     if (isMe) myRank = i + 1;
 
@@ -842,7 +846,7 @@ async function renderLeaderboard(highlightScore) {
     lbList.appendChild(row);
   });
 
-  // If player is outside top 20, show them below a separator
+  // If player is outside top 10, show them below a separator with gap to #10
   if (myBelow) {
     const sep = document.createElement('div');
     sep.style.cssText = 'text-align:center;color:rgba(255,255,255,0.2);font-size:10px;letter-spacing:3px;padding:6px 0';
@@ -857,11 +861,16 @@ async function renderLeaderboard(highlightScore) {
       <div class="lb-score">${myBelow.score}</div>
       <div class="lb-date">${myBelow.date || ''}</div>`;
     lbList.appendChild(row);
+
+    const tenthScore = top10.length >= 10 ? top10[9].score : null;
+    const gap        = tenthScore !== null && myBelow.score < tenthScore ? tenthScore - myBelow.score : 0;
     myRankBadge.style.display = 'block';
-    myRankBadge.innerHTML = `YOUR RANK: <span>OUTSIDE TOP 20</span>`;
+    myRankBadge.innerHTML = gap > 0
+      ? `YOUR RANK: <span>OUTSIDE TOP 10</span> &nbsp;·&nbsp; ${gap} PTS TO REACH #10`
+      : `YOUR RANK: <span>OUTSIDE TOP 10</span>`;
   } else if (myRank !== null) {
     myRankBadge.style.display = 'block';
-    myRankBadge.innerHTML = `YOUR GLOBAL RANK: <span>#${myRank}</span> of ${top20.length}+ pilots`;
+    myRankBadge.innerHTML = `YOUR GLOBAL RANK: <span>#${myRank}</span> of ${top10.length}+ pilots`;
   }
 }
 
@@ -913,10 +922,10 @@ async function updateRankLink() {
     if (!mySnap.exists()) { rankLink.style.display = 'none'; return; }
 
     // Count how many scores are higher than this player's to get their rank
-    const myScore  = mySnap.data().score;
-    const top20Snap = await db._getDocs(db._query(db._col(), db._orderBy('score','desc'), db._limit(20)));
-    const top20    = top20Snap.docs.map(d => d.data());
-    const idx      = top20.findIndex(e => e.deviceId === deviceId);
+    const myScore   = mySnap.data().score;
+    const top10Snap = await db._getDocs(db._query(db._col(), db._orderBy('score','desc'), db._limit(10)));
+    const top10     = top10Snap.docs.map(d => d.data());
+    const idx       = top10.findIndex(e => e.deviceId === deviceId);
 
     rankLink.style.display = 'block';
     if (idx >= 0) {
@@ -1396,7 +1405,7 @@ let frame = 0;
 let lastScoreSubmitted = null;
 
 // Launchpad config
-const LAUNCHPAD_X = 110;        // same as TAXI.x
+const LAUNCHPAD_X = 140;        // same as TAXI.x — shifted right so taxi stays in view with cover scaling
 const LAUNCHPAD_Y = H - 18;     // ground level
 const LAUNCHPAD_W = 80;
 const LAUNCHPAD_H = 10;
