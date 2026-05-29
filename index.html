@@ -40,21 +40,19 @@
   }
 
   #gameWrapper {
-    position: relative;
-    /* Fixed logical canvas — JS scales to fill the screen on any device */
-    width: 480px;
-    height: 640px;
-    box-shadow: 0 0 60px rgba(0,255,255,0.25), 0 0 120px rgba(255,0,255,0.12);
-    border: 1px solid rgba(0,255,255,0.2);
-    flex-shrink: 0;
-    transform-origin: center center;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
     -webkit-tap-highlight-color: transparent;
   }
 
   canvas {
     display: block;
-    width: 100%;
-    height: 100%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 480px;
+    height: 640px;
     image-rendering: pixelated;
   }
 
@@ -628,16 +626,14 @@ const ctx = canvas.getContext('2d');
 const W = 480, H = 640;
 
 // ── Fullscreen scaling ───────────────────────────────────────
-// Cover mode: scale to whichever axis fills the screen first, then clip
-// the overflow. HUD insets are adjusted to stay within the visible area.
+// gameWrapper is fixed/inset-0 and clips its children. The canvas is
+// absolutely centered inside it and scaled up to cover the full viewport.
+// HUD and overlays are positioned inside the same fixed wrapper, so they
+// sit naturally within the viewport with no extra adjustment needed.
 const gameWrapper = document.getElementById('gameWrapper');
-const hud         = document.getElementById('hud');
 function scaleGame() {
-  const scale    = Math.max(window.innerWidth / 480, window.innerHeight / 640);
-  const overflow = Math.max(0, (480 - window.innerWidth / scale) / 2);
-  gameWrapper.style.transform = `scale(${scale})`;
-  hud.style.left  = overflow + 'px';
-  hud.style.right = overflow + 'px';
+  const scale = Math.max(window.innerWidth / 480, window.innerHeight / 640);
+  canvas.style.transform = `translate(-50%, -50%) scale(${scale})`;
 }
 scaleGame();
 window.addEventListener('resize', scaleGame);
