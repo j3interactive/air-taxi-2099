@@ -1543,8 +1543,8 @@ function flap() {
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); flap(); }
 });
-document.addEventListener('click', e => { if (!e.target.closest('button, input, a')) flap(); });
-document.addEventListener('touchstart', e => { if (!e.target.closest('button, input, a')) { e.preventDefault(); flap(); } }, { passive: false });
+canvas.addEventListener('click', flap);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); flap(); }, { passive: false });
 
 startBtn.addEventListener('click', e => {
   e.stopPropagation();
@@ -1836,15 +1836,17 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Ads ───────────────────────────────────────────────────────
-// Call the Android bridge on every game over; AdMob handles its own
-// frequency capping and load state — the Kotlin side only shows the ad
-// when one is actually ready.
+let crashCount = 0;
+
 function maybeShowAd() {
-  try {
-    if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
-      window.AndroidBridge.onGameOver();
-    }
-  } catch(e) {}
+  crashCount++;
+  if (crashCount % 3 === 0) {
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
+        window.AndroidBridge.onGameOver();
+      }
+    } catch(e) {}
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────
