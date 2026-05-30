@@ -1562,9 +1562,9 @@ function startGame() {
 
 function gameOver() {
   state = 'dead';
-  stopMusic();
-  playSound('collision');
-  emitCrash(TAXI.x, TAXI.y);
+  try { stopMusic(); } catch(e) {}
+  try { playSound('collision'); } catch(e) {}
+  try { emitCrash(TAXI.x, TAXI.y); } catch(e) {}
   launchPrompt.classList.add('hidden');
   maybeShowAd();
 
@@ -1842,12 +1842,19 @@ let crashCount = 0;
 
 function maybeShowAd() {
   crashCount++;
+  console.log('[AirTaxi] crash #' + crashCount + ' | bridge=' + (typeof window.AndroidBridge));
   if (crashCount % 3 === 0) {
     try {
       if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
+        console.log('[AirTaxi] calling onGameOver()');
         window.AndroidBridge.onGameOver();
+        console.log('[AirTaxi] onGameOver() returned');
+      } else {
+        console.log('[AirTaxi] bridge unavailable — AndroidBridge=' + window.AndroidBridge);
       }
-    } catch(e) {}
+    } catch(e) {
+      console.log('[AirTaxi] bridge error: ' + e);
+    }
   }
 }
 
