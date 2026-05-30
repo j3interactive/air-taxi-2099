@@ -1681,15 +1681,17 @@ function update() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Scale the 480×640 game space to cover the full canvas (cover mode).
-  // The game is centred; edges that extend past the canvas are clipped
-  // naturally by the canvas boundary — no CSS overflow tricks needed.
-  const coverScale = Math.max(canvas.width / W, canvas.height / H);
-  const ox = (canvas.width  - W * coverScale) / 2;
-  const oy = (canvas.height - H * coverScale) / 2;
+  // Portrait viewports (phones) use cover — fills screen edge-to-edge with slight side crop.
+  // Landscape/wide viewports (desktop, tablet landscape) use contain — full game always visible.
+  const useCover = (canvas.width / canvas.height) < (W / H);
+  const drawScale = useCover
+    ? Math.max(canvas.width / W, canvas.height / H)
+    : Math.min(canvas.width / W, canvas.height / H);
+  const ox = (canvas.width  - W * drawScale) / 2;
+  const oy = (canvas.height - H * drawScale) / 2;
   ctx.save();
   ctx.translate(ox, oy);
-  ctx.scale(coverScale, coverScale);
+  ctx.scale(drawScale, drawScale);
 
   drawBackground();
   drawPlatforms();
