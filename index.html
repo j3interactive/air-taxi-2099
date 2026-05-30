@@ -629,11 +629,8 @@ const W = 480, H = 640;
 // viewport (cover mode) — no CSS transforms, works on all mobile browsers.
 const gameWrapper = document.getElementById('gameWrapper');
 function scaleGame() {
-  // Match the canvas drawing buffer to the device viewport so the
-  // canvas IS the screen — no overflow, no CSS scaling tricks.
-  // draw() applies ctx.scale() to map the 480×640 game space to cover.
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
+  canvas.width  = window.innerWidth  || 480;
+  canvas.height = window.innerHeight || 640;
 }
 scaleGame();
 window.addEventListener('resize', scaleGame);
@@ -1569,7 +1566,7 @@ function gameOver() {
   playSound('collision');
   emitCrash(TAXI.x, TAXI.y);
   launchPrompt.classList.add('hidden');
-  maybeShowAd(); // every 3rd crash only
+  maybeShowAd();
 
   const isNewRecord = score > highScore;
   if (score > highScore) {
@@ -1838,20 +1835,16 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// ── Ads: crash counter ────────────────────────────────────────
-// Every 3rd crash calls the Android bridge (if present) to show an interstitial.
-// In browser or when bridge is absent, this silently no-ops.
-let crashCount = 0;
-
+// ── Ads ───────────────────────────────────────────────────────
+// Call the Android bridge on every game over; AdMob handles its own
+// frequency capping and load state — the Kotlin side only shows the ad
+// when one is actually ready.
 function maybeShowAd() {
-  crashCount++;
-  if (crashCount % 3 === 0) {
-    try {
-      if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
-        window.AndroidBridge.onGameOver();
-      }
-    } catch(e) {}
-  }
+  try {
+    if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
+      window.AndroidBridge.onGameOver();
+    }
+  } catch(e) {}
 }
 
 // ── Init ──────────────────────────────────────────────────────
