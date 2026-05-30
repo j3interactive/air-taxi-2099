@@ -4,7 +4,7 @@
 // when you push an update. Everything else is automatic.
 // ============================================================
 
-const CACHE_VERSION = '1.0.0';
+const CACHE_VERSION = '1.0.5';
 const CACHE_NAME    = `air-taxi-2099-v${CACHE_VERSION}`;
 
 // Every URL the game needs to run fully offline.
@@ -35,9 +35,7 @@ self.addEventListener('install', event => {
         )
       );
     })
-    // Do NOT call skipWaiting() here — we let the update banner
-    // give the player control over when to reload mid-game.
-  );
+  ).then(() => self.skipWaiting());
 });
 
 // ── Activate: delete old caches ─────────────────────────────
@@ -78,7 +76,7 @@ self.addEventListener('fetch', event => {
 async function networkFirstWithCache(request) {
   const cache = await caches.open(CACHE_NAME);
   try {
-    const networkRes = await fetch(request);
+    const networkRes = await fetch(new Request(request.url, { cache: 'no-cache' }));
     if (networkRes.ok) {
       cache.put(request, networkRes.clone());
     }
