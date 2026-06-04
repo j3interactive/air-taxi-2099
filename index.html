@@ -580,6 +580,7 @@
     </div>
     <div class="tip" id="tip">DODGE BUILDINGS · COLLECT FARES</div>
     <button class="rank-link" id="rankLink" style="display:none"></button>
+    <div id="submitStatus" style="display:none;font-size:10px;color:#0ff;margin-top:8px;text-align:center;font-family:monospace;letter-spacing:1px;"></div>
     <!-- <div id="adDebug" style="display:none;font-size:10px;color:#0ff;margin-top:10px;text-align:center;line-height:1.6;font-family:monospace;"></div> -->
   </div>
 
@@ -723,13 +724,13 @@ const firebaseReady = (async () => {
 
 // ── Submit score to Firestore (one doc per device) ───────────
 async function submitScore(score, forceNameUpdate = false) {
-  if (score <= 0) return;
+  if (score <= 0) return 'skip';
   const name     = getPlayerName() || 'DRIVER';
   const deviceId = getDeviceId();
   const today    = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
 
   const ready = await firebaseReady;
-  if (!ready || !db) return; // offline or config not set — silently skip
+  if (!ready || !db) return 'no_firebase';
 
   try {
     const ref      = db._doc(deviceId);
@@ -737,11 +738,10 @@ async function submitScore(score, forceNameUpdate = false) {
 
     if (existing.exists()) {
       if (existing.data().score >= score) {
-        // Score hasn't improved — only update if name change was explicitly requested
         if (forceNameUpdate) {
           await db._setDoc(ref, { ...existing.data(), name, updatedAt: db._ts() });
         }
-        return;
+        return 'not_best:' + existing.data().score;
       }
     }
 
@@ -752,8 +752,10 @@ async function submitScore(score, forceNameUpdate = false) {
       deviceId,
       updatedAt: db._ts()
     });
+    return 'saved';
   } catch(e) {
-    console.warn('Score submit failed:', e);
+    console.error('Score submit failed:', e);
+    return 'error:' + (e.code || e.message || String(e));
   }
 }
 
@@ -1583,7 +1585,12 @@ function gameOver() {
   }
 
   lastScoreSubmitted = score;
-  pendingScoreSubmit = submitScore(score);
+  const submitStatusEl = document.getElementById('submitStatus');
+  if (submitStatusEl) { submitStatusEl.style.display = 'block'; submitStatusEl.textContent = 'SAVING...'; }
+  pendingScoreSubmit = submitScore(score).then(result => {
+    if (submitStatusEl) submitStatusEl.textContent = 'DB: ' + result;
+    return result;
+  });
 
   setTimeout(() => {
     overlayLabel.textContent = isNewRecord ? '🏆 NEW RECORD!' : (score === 0 ? 'BETTER LUCK NEXT TIME' : 'PASSENGERS DELIVERED');
@@ -1805,7 +1812,7 @@ function stopMusic() {
 loadMusic();
 
 // ── Version & Service Worker ─────────────────────────────────
-const GAME_VERSION = '1.0.8'; // bump this + CACHE_VERSION in sw.js on every release
+const GAME_VERSION = '1.0.9'; // bump this + CACHE_VERSION in sw.js on every release
 
 const updateBanner = document.getElementById('updateBanner');
 updateBanner.addEventListener('click', () => {
