@@ -892,11 +892,8 @@ lbSaveBtn.addEventListener('click', async () => {
   if (val.length === 0) return;
   setPlayerName(val);
   nameInput.blur();
-  // Re-submit under new name — force update even if score hasn't improved
-  const scoreToSubmit = (lastScoreSubmitted !== null && lastScoreSubmitted > 0)
-    ? lastScoreSubmitted : highScore;
-  if (scoreToSubmit > 0) {
-    await submitScore(scoreToSubmit, true);
+  if (highScore > 0) {
+    await submitScore(highScore, true);
   }
   renderLeaderboard(lastScoreSubmitted);
   updateRankLink();
@@ -1587,7 +1584,7 @@ function gameOver() {
   lastScoreSubmitted = score;
   const submitStatusEl = document.getElementById('submitStatus');
   if (submitStatusEl) { submitStatusEl.style.display = 'block'; submitStatusEl.textContent = 'SAVING...'; }
-  pendingScoreSubmit = submitScore(score).then(result => {
+  pendingScoreSubmit = submitScore(highScore).then(result => {
     if (submitStatusEl) submitStatusEl.textContent = 'DB: ' + result;
     return result;
   });
@@ -1812,7 +1809,7 @@ function stopMusic() {
 loadMusic();
 
 // ── Version & Service Worker ─────────────────────────────────
-const GAME_VERSION = '1.0.9'; // bump this + CACHE_VERSION in sw.js on every release
+const GAME_VERSION = '1.1.0'; // bump this + CACHE_VERSION in sw.js on every release
 
 const updateBanner = document.getElementById('updateBanner');
 updateBanner.addEventListener('click', () => {
