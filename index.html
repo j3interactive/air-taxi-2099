@@ -807,6 +807,15 @@ async function renderLeaderboard(highlightScore) {
 
   const entries = await fetchGlobalLeaderboard();
 
+  // If Firestore's query cache returned stale data missing our just-written entry,
+  // inject it from the locally-known snapshot so it shows immediately after saving.
+  if (entries !== null && localSubmittedEntry) {
+    const myId = localSubmittedEntry.deviceId;
+    if (!entries.some(e => e.deviceId === myId)) {
+      entries.push({ ...localSubmittedEntry, _isMyEntryBelow: true });
+    }
+  }
+
   lbList.innerHTML = '';
 
   // No Firebase config yet — show a helpful message in the leaderboard
@@ -1402,6 +1411,7 @@ let highScore = parseInt(localStorage.getItem(HS_KEY) || '0');
 let frame = 0;
 let lastScoreSubmitted = null;
 let pendingScoreSubmit = null;
+let localSubmittedEntry = null; // fallback when Firestore query cache is stale
 
 // Launchpad config
 const LAUNCHPAD_X = 140;        // same as TAXI.x — shifted right so taxi stays in view with cover scaling
@@ -1584,8 +1594,15 @@ function gameOver() {
   lastScoreSubmitted = score;
   const submitStatusEl = document.getElementById('submitStatus');
   if (submitStatusEl) { submitStatusEl.style.display = 'block'; submitStatusEl.textContent = 'SAVING...'; }
+  const _entrySnapshot = {
+    name: getPlayerName() || 'DRIVER',
+    score: highScore,
+    date: new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' }),
+    deviceId: getDeviceId()
+  };
   pendingScoreSubmit = submitScore(highScore).then(result => {
     if (submitStatusEl) submitStatusEl.textContent = 'DB: ' + result;
+    if (result === 'saved') localSubmittedEntry = _entrySnapshot;
     return result;
   });
 
@@ -1809,7 +1826,7 @@ function stopMusic() {
 loadMusic();
 
 // ── Version & Service Worker ─────────────────────────────────
-const GAME_VERSION = '1.1.0'; // bump this + CACHE_VERSION in sw.js on every release
+const GAME_VERSION = '1.1.1'; // bump this + CACHE_VERSION in sw.js on every release
 
 const updateBanner = document.getElementById('updateBanner');
 updateBanner.addEventListener('click', () => {
