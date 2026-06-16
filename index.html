@@ -580,8 +580,6 @@
     </div>
     <div class="tip" id="tip">DODGE BUILDINGS · COLLECT FARES</div>
     <button class="rank-link" id="rankLink" style="display:none"></button>
-    <div id="submitStatus" style="display:none;font-size:10px;color:#0ff;margin-top:8px;text-align:center;font-family:monospace;letter-spacing:1px;"></div>
-    <!-- <div id="adDebug" style="display:none;font-size:10px;color:#0ff;margin-top:10px;text-align:center;line-height:1.6;font-family:monospace;"></div> -->
   </div>
 
   <!-- Leaderboard Panel -->
@@ -1592,8 +1590,6 @@ function gameOver() {
   }
 
   lastScoreSubmitted = score;
-  const submitStatusEl = document.getElementById('submitStatus');
-  if (submitStatusEl) { submitStatusEl.style.display = 'block'; submitStatusEl.textContent = 'SAVING...'; }
   const _entrySnapshot = {
     name: getPlayerName() || 'DRIVER',
     score: highScore,
@@ -1601,7 +1597,6 @@ function gameOver() {
     deviceId: getDeviceId()
   };
   pendingScoreSubmit = submitScore(highScore).then(result => {
-    if (submitStatusEl) submitStatusEl.textContent = 'DB: ' + result;
     if (result === 'saved') localSubmittedEntry = _entrySnapshot;
     return result;
   });
@@ -1711,7 +1706,11 @@ function draw() {
 
   // Portrait viewports (phones) use cover — fills screen edge-to-edge with slight side crop.
   // Landscape/wide viewports (desktop, tablet landscape) use contain — full game always visible.
-  const useCover = (canvas.width / canvas.height) < (W / H);
+  // Cover (crop, full-bleed) for any portrait-or-square screen — including
+  // near-square unfolded foldables (e.g. Galaxy Fold) that would otherwise
+  // trip the old narrow-aspect threshold and letterbox instead of filling.
+  // Contain only kicks in once the screen is genuinely wider than tall.
+  const useCover = canvas.width <= canvas.height;
   const drawScale = useCover
     ? Math.max(canvas.width / W, canvas.height / H)
     : Math.min(canvas.width / W, canvas.height / H);
@@ -1826,7 +1825,7 @@ function stopMusic() {
 loadMusic();
 
 // ── Version & Service Worker ─────────────────────────────────
-const GAME_VERSION = '1.1.1'; // bump this + CACHE_VERSION in sw.js on every release
+const GAME_VERSION = '1.1.2'; // bump this + CACHE_VERSION in sw.js on every release
 
 const updateBanner = document.getElementById('updateBanner');
 updateBanner.addEventListener('click', () => {
