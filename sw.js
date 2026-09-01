@@ -4,7 +4,7 @@
 // when you push an update. Everything else is automatic.
 // ============================================================
 
-const CACHE_VERSION = '1.1.3';
+const CACHE_VERSION = '1.1.4';
 const CACHE_NAME    = `air-taxi-2099-v${CACHE_VERSION}`;
 
 // Every URL the game needs to run fully offline.
@@ -51,45 +51,26 @@ self.addEventListener('activate', event => {
   );
 });
 
-// ── Fetch: cache-first with network fallback ─────────────────
+// ── Fetch: cache-first with background refresh ────────────────
 //
-// Strategy per resource type:
-//   index.html        → network-first (detect updates), fall back to cache
-//   everything else   → cache-first (fast), refresh cache in background
-//
+// Everything, including index.html, is served from cache immediately
+// when available, with a network refresh kicked off in the background
+// for next time. index.html used to be network-first so that version
+// bumps were "detected immediately," but that isn't actually how
+// updates get picked up here — bumping CACHE_VERSION changes sw.js
+// itself, which the browser diffs on its own and installs a new SW
+// that re-fetches a fresh index.html into a new cache (see 'install'
+// above); the banner then appears once that new SW is waiting.
+// Network-first on every load just meant every normal visit had to
+// wait on a full ~8MB fetch (this game embeds its music inline)
+// before falling back to cache — painfully slow on a flaky
+// connection, and outright broken with none at all.
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
-
   // Only handle GET requests
   if (event.request.method !== 'GET') return;
 
-  // index.html — network first so version bumps are detected immediately
-  if (url.pathname.endsWith('/') || url.pathname.endsWith('/index.html')) {
-    event.respondWith(networkFirstWithCache(event.request));
-    return;
-  }
-
-  // Everything else — cache first, update in background
   event.respondWith(cacheFirstWithRefresh(event.request));
 });
-
-async function networkFirstWithCache(request) {
-  const cache = await caches.open(CACHE_NAME);
-  try {
-    const networkRes = await fetch(new Request(request.url, { cache: 'no-cache' }));
-    if (networkRes.ok) {
-      cache.put(request, networkRes.clone());
-    }
-    return networkRes;
-  } catch {
-    // Offline — serve cached version
-    const cached = await cache.match(request);
-    return cached || new Response('Offline — please reconnect to load Air Taxi 2099.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain' }
-    });
-  }
-}
 
 async function cacheFirstWithRefresh(request) {
   const cache = await caches.open(CACHE_NAME);
@@ -100,8 +81,16 @@ async function cacheFirstWithRefresh(request) {
     .then(res => { if (res.ok) cache.put(request, res.clone()); return res; })
     .catch(() => null);
 
-  // Return cached immediately if we have it, otherwise wait for network
-  return cached || networkFetch;
+  // Return cached immediately if we have it
+  if (cached) return cached;
+
+  // Nothing cached yet (e.g. very first visit) — wait for the network,
+  // and fail gracefully if that has nothing either.
+  const networkRes = await networkFetch;
+  return networkRes || new Response('Offline — please connect once to load Air Taxi 2099 for the first time.', {
+    status: 503,
+    headers: { 'Content-Type': 'text/plain' }
+  });
 }
 
 // ── Message: SKIP_WAITING ────────────────────────────────────
