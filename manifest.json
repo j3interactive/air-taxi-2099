@@ -4,7 +4,7 @@
   "description": "Dodge buildings, collect fares in a neon cyberpunk city",
   "start_url": "./index.html",
   "display": "fullscreen",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#000010",
   "theme_color": "#000010",
   "categories": ["games"],
