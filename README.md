@@ -104,13 +104,18 @@ Players can also **install it as an app**:
 
 ---
 
-## 🎨 Adding app icons (optional but recommended)
+## 🎨 App icons
 
-Create an `icons/` folder in your repo with:
-- `icon-192.png` — 192×192px
-- `icon-512.png` — 512×512px
+`icons/icon-192.png` and `icons/icon-512.png` ship in this repo and are what
+`manifest.json` points to. **Both must exist at those exact paths** — if
+either is missing or renamed, `manifest.json` will 404 on the icon fetch.
+That's harmless in the browser, but it breaks any Android packaging tool
+(e.g. PWABuilder / Bubblewrap) that reads the manifest to build a Google
+Play / Android Studio project: it can't generate a launcher icon, so the
+build fails or the resulting app crashes on launch.
 
-Use a neon taxi on a dark background. Tools: [realfavicongenerator.net](https://realfavicongenerator.net)
+To change the artwork, replace both PNGs in place (same filenames, same
+192×192 / 512×512 sizes) rather than deleting and re-adding under a new name.
 
 ---
 
