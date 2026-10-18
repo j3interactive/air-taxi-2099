@@ -585,6 +585,32 @@
     text-shadow: 0 0 14px var(--gold);
   }
 
+  /* Rewarded "continue" button (Android app only) */
+  .continue-btn {
+    margin-top: clamp(14px,3.5vw,26px);
+    border-color: var(--gold);
+    color: var(--gold);
+    text-shadow: 0 0 8px var(--gold);
+    box-shadow: 0 0 14px rgba(255,215,0,0.3), inset 0 0 12px rgba(255,215,0,0.08);
+    animation: continuePulse 1.6s ease-in-out infinite;
+  }
+  .continue-btn::before { background: var(--gold); }
+  .continue-btn:disabled { opacity: 0.55; cursor: default; animation: none; }
+  .continue-btn + .start-btn { margin-top: clamp(10px,2.5vw,16px); }
+  @keyframes continuePulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(255,215,0,0.25), inset 0 0 12px rgba(255,215,0,0.06); }
+    50%      { box-shadow: 0 0 26px rgba(255,215,0,0.55), inset 0 0 12px rgba(255,215,0,0.12); }
+  }
+
+  /* Privacy settings link (shown only when the consent rules require it) */
+  .privacy-link {
+    margin-top: 2px;
+    color: rgba(255,255,255,0.4);
+    text-shadow: none;
+    font-size: clamp(8px,1.7vw,10px);
+  }
+  .privacy-link:hover { color: rgba(255,255,255,0.8); text-shadow: none; }
+
   /* Launchpad prompt */
   #launchPrompt {
     position: absolute;
@@ -661,6 +687,7 @@
     <div class="score-label" id="overlayLabel">PICK UP PASSENGERS</div>
     <div class="score-display" id="overlayScore" style="display:none">0</div>
     <div class="best-row" id="bestRow" style="display:none">BEST &nbsp;<span class="best-val" id="overlayBest">0</span></div>
+    <button class="start-btn continue-btn" id="continueBtn" style="display:none">▶ WATCH AD · CONTINUE</button>
     <button class="start-btn" id="startBtn">LAUNCH</button>
     <div class="instructions" id="instrRow">
       <div class="inst-item"><div class="inst-icon">␣</div>SPACE</div>
@@ -669,6 +696,7 @@
     </div>
     <div class="tip" id="tip">DODGE BUILDINGS · COLLECT FARES</div>
     <button class="rank-link" id="rankLink" style="display:none"></button>
+    <button class="rank-link privacy-link" id="privacyLink" style="display:none">PRIVACY SETTINGS</button>
   </div>
 
   <!-- Leaderboard Panel -->
@@ -690,8 +718,8 @@
 
   <!-- Launchpad liftoff prompt -->
   <div id="launchPrompt" class="hidden">
-    <div class="lp-line1">▲ TAP TO LIFT OFF ▲</div>
-    <div class="lp-line2">ENGINES HOT · AWAITING LAUNCH</div>
+    <div class="lp-line1" id="lpLine1">▲ TAP TO LIFT OFF ▲</div>
+    <div class="lp-line2" id="lpLine2">ENGINES HOT · AWAITING LAUNCH</div>
   </div>
 
   <!-- Update notification banner -->
@@ -1491,7 +1519,7 @@ function drawSkyscraper(x, y, w, h) {
 }
 
 // ── Game State ────────────────────────────────────────────────
-let state = 'menu'; // 'menu' | 'launchpad' | 'playing' | 'dead'
+let state = 'menu'; // 'menu' | 'launchpad' | 'playing' | 'dead' | 'revive'
 let scrolling = false; // background only scrolls once airborne
 let score = 0;
 let highScore = parseInt(localStorage.getItem(HS_KEY) || '0');
@@ -1615,6 +1643,7 @@ function resetGame() {
   score = 0; frame = 0; launchpadFrame = 0;
   scrolling = false;
   platforms = []; passengers = []; particles = [];
+  continueUsed = false; invulnFrames = 0;
   hudScore.textContent = '0';
   hudBest.textContent = highScore;
 }
@@ -1633,6 +1662,15 @@ function flap() {
     for (let i = 0; i < 14; i++) particles.push(new Particle(TAXI.x + 13, TAXI.y + 13, 'ember'));
     for (let i = 0; i < 8; i++) particles.push(new Particle(TAXI.x - 13, TAXI.y + 13, 'plasma'));
     for (let i = 0; i < 8; i++) particles.push(new Particle(TAXI.x + 13, TAXI.y + 13, 'plasma'));
+  } else if (state === 'revive') {
+    // Second chance — resume the same run
+    state = 'playing';
+    scrolling = true;
+    TAXI.vy = TAXI.FLAP;
+    launchPrompt.classList.add('hidden');
+    resetLaunchPromptText();
+    startMusic();
+    playSound('tap');
   } else if (state === 'playing') {
     TAXI.vy = TAXI.FLAP;
     playSound('tap');
@@ -1652,7 +1690,11 @@ canvas.addEventListener('touchstart', e => { e.preventDefault(); flap(); }, { pa
 startBtn.addEventListener('click', e => {
   e.stopPropagation();
   resumeAudio();
+  const isRetry = state === 'dead';
   startGame();
+  // The ad opens over the launchpad (the run hasn't started until they tap),
+  // so it never interrupts play or hides the score screen.
+  if (isRetry) maybeShowInterstitial();
 });
 
 function startGame() {
@@ -1660,6 +1702,8 @@ function startGame() {
   state = 'launchpad';
   overlay.classList.add('hidden');
   lbPanel.classList.add('hidden');
+  continueBtn.style.display = 'none';
+  resetLaunchPromptText();
   launchPrompt.classList.remove('hidden');
 }
 
@@ -1669,7 +1713,6 @@ function gameOver() {
   try { playSound('collision'); } catch(e) {}
   try { emitCrash(TAXI.x, TAXI.y); } catch(e) {}
   launchPrompt.classList.add('hidden');
-  maybeShowAd();
 
   const isNewRecord = score > highScore;
   if (score > highScore) {
@@ -1699,12 +1742,17 @@ function gameOver() {
     instrRow.style.display = 'none';
     tip.style.display = 'none';
     startBtn.textContent = 'RETRY';
+    updateContinueButton();
+    updatePrivacyLink();
     overlay.classList.remove('hidden');
     hudBest.textContent = highScore;
     updateRankLink();
 
     const hasName = !!getPlayerName();
-    if (isNewRecord && score > 0) {
+    if (continueOffered) {
+      // Keep the CONTINUE button visible; the leaderboard is one tap away
+      // and opens automatically after the run really ends.
+    } else if (isNewRecord && score > 0) {
       // Open leaderboard; if no name set, focus input so they name themselves immediately
       setTimeout(() => {
         openLeaderboard(score);
@@ -1741,6 +1789,7 @@ function updateLaunchpad() {
 function update() {
   frame++;
   launchpadFrame++;
+  if (invulnFrames > 0) invulnFrames--;
   TAXI.vy += TAXI.GRAVITY;
   TAXI.vy = Math.min(TAXI.vy, 12);
   TAXI.y += TAXI.vy;
@@ -1758,6 +1807,7 @@ function update() {
     const topH = p.gapY + yOff;
     const botY = p.gapY + yOff + GAP_SIZE;
     const botH = H - botY - 18;
+    if (invulnFrames > 0) continue; // shields up for a moment after a revive
     if (rectsOverlap(TAXI.x - TAXI.width / 2, TAXI.y - TAXI.height / 2, TAXI.width, TAXI.height, p.x, 14, p.w, topH - 14)) { gameOver(); return; }
     if (botH > 0 && rectsOverlap(TAXI.x - TAXI.width / 2, TAXI.y - TAXI.height / 2, TAXI.width, TAXI.height, p.x, botY, p.w, botH)) { gameOver(); return; }
   }
@@ -1819,9 +1869,12 @@ function draw() {
     drawLaunchpad();
   }
 
-  const thruster = state === 'playing' || state === 'launchpad';
+  const thruster = state === 'playing' || state === 'launchpad' || state === 'revive';
   const thrustBoost = state === 'playing' && TAXI.vy < 0;
+  const shieldFlicker = invulnFrames > 0 && Math.floor(frame / 5) % 2 === 0;
+  if (shieldFlicker) ctx.globalAlpha = 0.45;
   drawTaxi(TAXI.x, TAXI.y, thruster, thrustBoost);
+  ctx.globalAlpha = 1;
 
   if (state === 'dead' && frame % 6 < 3) {
     ctx.fillStyle = 'rgba(255,50,50,0.15)';
@@ -1838,6 +1891,7 @@ function loop(timestamp) {
   if (dt >= 16) {
     lastTime = timestamp;
     if (state === 'launchpad') updateLaunchpad();
+    else if (state === 'revive') updateRevive();
     else if (state === 'playing') update();
     draw();
   }
@@ -1877,7 +1931,7 @@ function stopMusic() {
 }
 
 // ── Version & Service Worker ─────────────────────────────────
-const GAME_VERSION = '1.1.7'; // bump this + CACHE_VERSION in sw.js on every release
+const GAME_VERSION = '1.2.0'; // bump this + CACHE_VERSION in sw.js on every release
 
 const updateBanner = document.getElementById('updateBanner');
 updateBanner.addEventListener('click', () => {
@@ -1917,18 +1971,133 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Ads ───────────────────────────────────────────────────────
-let crashCount = 0;
+// Everything here only does something inside the Android app, which
+// exposes window.AndroidBridge. In a browser no ads or buttons appear.
+//
+// Interstitial: shown when the player taps RETRY (every 3rd retry), so it
+//   never interrupts a run or covers the score screen.
+// Rewarded: once per run, "watch an ad to continue" revives the taxi.
+const INTERSTITIAL_EVERY = 3;
+const REVIVE_INVULN_FRAMES = 90; // ~1.5 s of shields after a revive
+const continueBtn  = document.getElementById('continueBtn');
+const privacyLink  = document.getElementById('privacyLink');
+const lpLine1      = document.getElementById('lpLine1');
+const lpLine2      = document.getElementById('lpLine2');
+const LP_DEFAULT_1 = lpLine1.textContent;
+const LP_DEFAULT_2 = lpLine2.textContent;
+const CONTINUE_LABEL = continueBtn.textContent;
 
-function maybeShowAd() {
-  crashCount++;
-  if (crashCount % 3 === 0) {
-    try {
-      if (window.AndroidBridge && typeof window.AndroidBridge.onGameOver === 'function') {
-        window.AndroidBridge.onGameOver();
-      }
-    } catch(e) {}
-  }
+let retryCount      = 0;
+let continueUsed    = false; // one revive per run
+let continueOffered = false; // the death screen is offering it right now
+let rewardPending   = false; // rewarded ad is on screen
+let invulnFrames    = 0;
+
+function bridgeHas(fn) {
+  try { return !!(window.AndroidBridge && typeof window.AndroidBridge[fn] === 'function'); }
+  catch (e) { return false; }
 }
+
+function resetLaunchPromptText() {
+  lpLine1.textContent = LP_DEFAULT_1;
+  lpLine2.textContent = LP_DEFAULT_2;
+}
+
+function maybeShowInterstitial() {
+  retryCount++;
+  if (retryCount % INTERSTITIAL_EVERY !== 0) return;
+  try { if (bridgeHas('onGameOver')) window.AndroidBridge.onGameOver(); } catch (e) {}
+}
+
+function rewardedReady() {
+  try {
+    return bridgeHas('isRewardedReady') && bridgeHas('showRewarded') &&
+           window.AndroidBridge.isRewardedReady() === true;
+  } catch (e) { return false; }
+}
+
+function canOfferContinue() {
+  return state === 'dead' && !continueUsed && score > 0 && rewardedReady();
+}
+
+function updateContinueButton() {
+  continueOffered = canOfferContinue();
+  continueBtn.style.display = continueOffered ? 'block' : 'none';
+  continueBtn.disabled = rewardPending;
+  if (!rewardPending) continueBtn.textContent = CONTINUE_LABEL;
+}
+
+continueBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  if (rewardPending || !canOfferContinue()) return;
+  rewardPending = true;
+  continueBtn.disabled = true;
+  continueBtn.textContent = 'LOADING…';
+  try { window.AndroidBridge.showRewarded(); }
+  catch (err) { rewardPending = false; updateContinueButton(); }
+});
+
+function revive() {
+  continueUsed = true;
+  continueOffered = false;
+  continueBtn.style.display = 'none';
+  overlay.classList.add('hidden');
+  lbPanel.classList.add('hidden');
+  try { blurInputs(); } catch (e) {}
+  // Clear the buildings around the taxi so it isn't revived inside a wall.
+  platforms = platforms.filter(p => p.x > TAXI.x + 160 || p.x + p.w < TAXI.x - TAXI.width);
+  TAXI.y = H / 2;
+  TAXI.vy = 0;
+  invulnFrames = REVIVE_INVULN_FRAMES;
+  state = 'revive';
+  lpLine1.textContent = '▲ TAP TO RESUME ▲';
+  lpLine2.textContent = 'SHIELDS UP · SECOND CHANCE';
+  launchPrompt.classList.remove('hidden');
+}
+
+function updateRevive() {
+  launchpadFrame++;
+  TAXI.y = H / 2 + Math.sin(launchpadFrame * 0.08) * 4; // hover in place
+  if (launchpadFrame % 3 === 0) {
+    particles.push(new Particle(TAXI.x - 13, TAXI.y + 13, 'plasma'));
+    particles.push(new Particle(TAXI.x + 13, TAXI.y + 13, 'plasma'));
+  }
+  particles.forEach(p => p.update());
+  particles = particles.filter(p => p.life > 0);
+}
+
+// ── Called by the Android app ──
+// The player watched the whole rewarded ad (sent after the ad closes).
+window.onRewardEarned = function () {
+  rewardPending = false;
+  continueBtn.disabled = false;
+  continueBtn.textContent = CONTINUE_LABEL;
+  if (state === 'dead' && !continueUsed) revive();
+};
+// The ad closed early or failed to show — no reward.
+window.onRewardClosed = function () {
+  rewardPending = false;
+  updateContinueButton();
+};
+// A rewarded ad finished loading; reveal CONTINUE if we're on the death screen.
+window.onRewardedReady = function () {
+  if (state === 'dead' && !rewardPending) updateContinueButton();
+};
+
+function updatePrivacyLink() {
+  let show = false;
+  try {
+    show = bridgeHas('isPrivacyOptionsRequired') && bridgeHas('showPrivacyOptions') &&
+           window.AndroidBridge.isPrivacyOptionsRequired() === true;
+  } catch (e) {}
+  privacyLink.style.display = show ? 'block' : 'none';
+}
+window.onPrivacyOptionsStatus = updatePrivacyLink;
+privacyLink.addEventListener('click', e => {
+  e.stopPropagation();
+  try { if (bridgeHas('showPrivacyOptions')) window.AndroidBridge.showPrivacyOptions(); } catch (err) {}
+});
+updatePrivacyLink();
 
 // ── Init ──────────────────────────────────────────────────────
 TAXI.y = TAXI_REST_Y; // start on launchpad
