@@ -4,7 +4,7 @@
 // when you push an update. Everything else is automatic.
 // ============================================================
 
-const CACHE_VERSION = '1.1.7';
+const CACHE_VERSION = '1.2.0';
 const CACHE_NAME    = `air-taxi-2099-v${CACHE_VERSION}`;
 
 // Every URL the game needs to run fully offline.
